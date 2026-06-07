@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TSD物種性別失衡風險預測模型</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --bg: #0a0f1a;
+    --panel: #111827;
+    --border: #1e2d45;
+    --accent1: #38bdf8; /* 綠蠵龜 - 藍 */
+    --accent2: #86efac; /* 喙頭蜥 - 綠 */
+    --accent3: #fb923c; /* 短吻鱷 - 橙 */
+    --danger: #f87171;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --serif: 'Noto Serif TC', serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    min-height: 100vh;
+    padding: 2rem 1rem;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(56,189,248,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56,189,248,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; position: relative; z-index: 1; }
+
+  /* Header */
+  header { text-align: center; margin-bottom: 2.5rem; }
+  header .label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    color: var(--accent1);
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+  header h1 {
+    font-size: clamp(1.4rem, 4vw, 2.2rem);
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: 0.5rem;
+  }
+  header p {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-family: var(--mono);
+  }
+
+  /* Species selector */
+  .species-tabs {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .species-tab {
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .species-tab:hover { border-color: var(--muted); color: var(--text); }
+  .species-tab.active-0 { border-color: var(--accent1); color: var(--accent1); background: rgba(56,189,248,0.08); }
+  .species-tab.active-1 { border-color: var(--accent2); color: var(--accent2); background: rgba(134,239,172,0.08); }
+  .species-tab.active-2 { border-color: var(--accent3); color: var(--accent3); background: rgba(251,146,60,0.08); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-0 { background: var(--accent1); }
+  .dot-1 { background: var(--accent2); }
+  .dot-2 { background: var(--accent3); }
+
+  /* Controls */
+  .controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  @media (max-width: 600px) { .controls-grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+  }
+  .slider-label {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text);
+    min-width: 110px;
+  }
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent1);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+  .slider-val {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--accent1);
+    min-width: 50px;
+    text-align: right;
+  }
+
+  /* Warning temp indicator */
+  .temp-warning {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    display: none;
+  }
+  .temp-warning.show { display: block; }
+  .temp-warning.danger { background: rgba(248,113,113,0.12); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
+  .temp-warning.warn { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+
+  /* Risk meters */
+  .risk-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+  }
+  @media (max-width: 600px) { .risk-grid { grid-template-columns: 1fr; } }
+
+  .risk-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .risk-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .risk-card-0::before { background: var(--accent1); }
+  .risk-card-1::before { background: var(--accent2); }
+  .risk-card-2::before { background: var(--accent3); }
+
+  .risk-species { font-size: 0.75rem; color: var(--muted); font-family: var(--mono); margin-bottom: 0.3rem; }
+  .risk-name { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.75rem; }
+  .risk-value {
+    font-size: 2.2rem;
+    font-family: var(--mono);
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+  }
+  .risk-bar-bg {
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+  }
+  .risk-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+  .risk-bar-0 { background: var(--accent1); }
+  .risk-bar-1 { background: var(--accent2); }
+  .risk-bar-2 { background: var(--accent3); }
+  .risk-status { font-size: 0.7rem; font-family: var(--mono); }
+  .status-safe { color: #4ade80; }
+  .status-warn { color: #fbbf24; }
+  .status-danger { color: var(--danger); }
+  .status-critical { color: #dc2626; }
+
+  .female-pct { font-size: 0.7rem; color: var(--muted); font-family: var(--mono); margin-top: 0.3rem; }
+
+  /* Charts */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  @media (max-width: 700px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .chart-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  .chart-title { font-size: 0.8rem; font-weight: 600; margin-bottom: 1rem; }
+  .chart-sub { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); margin-top: 0.3rem; }
+
+  /* Table */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    color: var(--muted);
+    font-weight: 400;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .data-table td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(30,45,69,0.5);
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .tag {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+  }
+  .tag-Ia { background: rgba(56,189,248,0.15); color: var(--accent1); }
+  .tag-Ib { background: rgba(134,239,172,0.15); color: var(--accent2); }
+  .tag-II { background: rgba(251,146,60,0.15); color: var(--accent3); }
+
+  /* Footer note */
+  .footnote {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 2rem;
+    line-height: 1.7;
+  }
+  .footnote a { color: var(--accent1); text-decoration: none; }
+
+  /* Pulse animation for critical */
+  @keyframes pulse-danger {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulse { animation: pulse-danger 1.5s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="label">小論文輔助工具 · TSD Research Model v1.0</div>
+    <h1>TSD物種性別失衡風險預測模型</h1>
+    <p>溫度依賴型性別決定（TSD）× 氣候暖化情境模擬</p>
+  </header>
+
+  <!-- Controls -->
+  <div class="controls-grid">
+    <div class="panel">
+      <div class="panel-title">🌡 暖化情境設定</div>
+      <div class="slider-row">
+        <span class="slider-label">升溫幅度 ΔT</span>
+        <input type="range" id="deltaT" min="0" max="5" step="0.1" value="0">
+        <span class="slider-val" id="deltaTVal">+0.0°C</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">基準大氣溫</span>
+        <input type="range" id="baseTemp" min="20" max="35" step="0.5" value="28">
+        <span class="slider-val" id="baseTempVal">28.0°C</span>
+      </div>
+      <div id="tempWarning" class="temp-warning"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">🏖 棲地微氣候修正</div>
+      <div class="slider-row">
+        <span class="slider-label">遮蔽率 S (%)</span>
+        <input type="range" id="shade" min="0" max="100" step="5" value="20">
+        <span class="slider-val" id="shadeVal">20%</span>
+      </div>
+      <div class="slider-row">
+        <span class="slider-label">墊材修正 δ</span>
+        <input type="range" id="delta" min="-2" max="4" step="0.5" value="1.5">
+        <span class="slider-val" id="deltaVal">+1.5°C</span>
+      </div>
+      <div style="font-family:var(--mono);font-size:0.7rem;color:var(--muted);margin-top:0.5rem;">
+        巢穴實際溫度 T_nest = <span id="nestTempDisplay" style="color:var(--accent1);">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Risk Cards -->
+  <div class="risk-grid">
+    <div class="risk-card risk-card-0">
+      <div class="risk-species">模式 Ia · Chelonia mydas</div>
+      <div class="risk-name">綠蠵龜</div>
+      <div class="risk-value" id="risk0">—</div>
+      <div class="risk-bar-bg"><div class="risk-bar risk-bar-0" id="riskBar0" style="width:0%"></div></div>
+      <div class="risk-status" id="riskStatus0">—</div>
+      <div class="female-pct">雌性比例：<span id="female0">—</span></div>
+    </div>
+    <div class="risk-card risk-card-1">
+      <div class="risk-species">模式 Ib · Sphenodon punctatus</div>
+      <div class="risk-name">喙頭蜥</div>
+      <div class="risk-value" id="risk1">—</div>
+      <div class="risk-bar-bg"><div class="risk-bar risk-bar-1" id="riskBar1" style="width:0%"></div></div>
+      <div class="risk-status" id="riskStatus1">—</div>
+      <div class="female-pct">雌性比例：<span id="female1">—</span></div>
+    </div>
+    <div class="risk-card risk-card-2">
+      <div class="risk-species">模式 II · Alligator mississippiensis</div>
+      <div class="risk-name">美洲短吻鱷</div>
+      <div class="risk-value" id="risk2">—</div>
+      <div class="risk-bar-bg"><div class="risk-bar risk-bar-2" id="riskBar2" style="width:0%"></div></div>
+      <div class="risk-status" id="riskStatus2">—</div>
+      <div class="female-pct">雌性比例：<span id="female2">—</span></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-grid">
+    <div class="chart-panel">
+      <div class="chart-title">雌性比例 × 巢穴溫度</div>
+      <div class="chart-sub">S型邏輯斯諦曲線 · 垂直線 = 當前巢穴溫度</div>
+      <canvas id="chartFemale" height="220"></canvas>
+    </div>
+    <div class="chart-panel">
+      <div class="chart-title">風險係數 R × 升溫幅度（0–5°C）</div>
+      <div class="chart-sub">固定當前基準溫 · 模擬未來暖化情境</div>
+      <canvas id="chartRisk" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <div class="panel">
+    <div class="panel-title">📊 當前情境數據彙整</div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>物種</th>
+          <th>模式</th>
+          <th>樞紐溫度</th>
+          <th>當前巢穴溫</th>
+          <th>雌性比例</th>
+          <th>急性致死率</th>
+          <th>風險係數 R</th>
+          <th>警示等級</th>
+        </tr>
+      </thead>
+      <tbody id="dataTableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="footnote">
+    模型公式：F(T) 採用 Hulin et al. (2009) 恆溫邏輯斯諦函數 · 風險係數 R = |F(T)−0.5|×2×(1−致死率)<br>
+    巢穴溫度修正：T_nest = T_atm + ΔT + δ × (1 − S/100) · 參考 Jensen et al. (2018) 微氣候觀測概念<br>
+    急性致死率參考：綠蠵龜 >35°C · 喙頭蜥 >30°C · 短吻鱷 >36°C（Bull, 1980; Mitchell et al., 2006; Bock et al., 2020）
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════
+// 物種參數
+// ══════════════════════════════
+const SPECIES = [
+  {
+    name: '綠蠵龜',
+    latin: 'Chelonia mydas',
+    mode: 'Ia',
+    color: '#38bdf8',
+    colorAlpha: 'rgba(56,189,248,0.7)',
+    colorFill: 'rgba(56,189,248,0.12)',
+    // 模式Ia: 高溫→雌
+    pivots: [29.0], // 單樞紐
+    k: 2.8,         // 曲線陡峭度
+    type: 'Ia',
+    lethalTemp: 35.0,  // 急性致死溫度
+    lethalK: 3.0,
+  },
+  {
+    name: '喙頭蜥',
+    latin: 'Sphenodon punctatus',
+    mode: 'Ib',
+    color: '#86efac',
+    colorAlpha: 'rgba(134,239,172,0.7)',
+    colorFill: 'rgba(134,239,172,0.12)',
+    // 模式Ib: 低溫→雌（方向相反）
+    pivots: [21.5],
+    k: 2.8,
+    type: 'Ib',
+    lethalTemp: 30.0,
+    lethalK: 4.0,
+  },
+  {
+    name: '美洲短吻鱷',
+    latin: 'Alligator mississippiensis',
+    mode: 'II',
+    color: '#fb923c',
+    colorAlpha: 'rgba(251,146,60,0.7)',
+    colorFill: 'rgba(251,146,60,0.12)',
+    // 模式II: 雙樞紐 FMF
+    pivots: [31.5, 33.0],
+    k: 5.0,
+    type: 'II',
+    lethalTemp: 36.0,
+    lethalK: 3.5,
+  }
+];
+
+// ══════════════════════════════
+// 數學模型
+// ══════════════════════════════
+function sigmoid(T, pivot, k) {
+  return 1 / (1 + Math.exp(-k * (T - pivot)));
+}
+
+// 雌性比例 F(T)
+function femaleProportion(T, sp) {
+  if (sp.type === 'Ia') {
+    return sigmoid(T, sp.pivots[0], sp.k);
+  } else if (sp.type === 'Ib') {
+    return 1 - sigmoid(T, sp.pivots[0], sp.k);
+  } else {
+    // 模式II (FMF): 倒鐘形 = 1 - (上升 - 下降)
+    const rise = sigmoid(T, sp.pivots[0], sp.k);
+    const fall = sigmoid(T, sp.pivots[1], sp.k);
+    return 1 - (rise - fall);
+  }
+}
+
+// 急性致死率 M(T)
+function lethalRate(T, sp) {
+  if (T < sp.lethalTemp) return 0;
+  return Math.min(1, sigmoid(T, sp.lethalTemp, sp.lethalK) * 2 - 1);
+}
+
+// 風險係數 R
+function riskIndex(T, sp) {
+  const F = femaleProportion(T, sp);
+  const M = lethalRate(T, sp);
+  const sexBias = Math.abs(F - 0.5) * 2;
+  return sexBias * (1 - M) + M;
+}
+
+// ══════════════════════════════
+// 巢穴溫度計算
+// ══════════════════════════════
+function nestTemp(baseTemp, deltaT, delta, shade) {
+  return baseTemp + deltaT + delta * (1 - shade / 100);
+}
+
+// ══════════════════════════════
+// Chart.js 設定
+// ══════════════════════════════
+const chartDefaults = {
+  responsive: true,
+  animation: { duration: 400 },
+  plugins: {
+    legend: {
+      labels: { color: '#94a3b8', font: { family: 'DM Mono', size: 11 }, boxWidth: 12 }
+    },
+    tooltip: {
+      backgroundColor: '#1e293b',
+      titleColor: '#e2e8f0',
+      bodyColor: '#94a3b8',
+      borderColor: '#334155',
+      borderWidth: 1,
+      titleFont: { family: 'DM Mono' },
+      bodyFont: { family: 'DM Mono', size: 11 },
+    }
+  },
+  scales: {
+    x: {
+      grid: { color: 'rgba(30,45,69,0.8)' },
+      ticks: { color: '#64748b', font: { family: 'DM Mono', size: 10 } }
+    },
+    y: {
+      grid: { color: 'rgba(30,45,69,0.8)' },
+      ticks: { color: '#64748b', font: { family: 'DM Mono', size: 10 } }
+    }
+  }
+};
+
+// 雌性比例圖
+const femaleTemps = [];
+for (let t = 15; t <= 42; t += 0.25) femaleTemps.push(+t.toFixed(2));
+
+const femaleChart = new Chart(document.getElementById('chartFemale'), {
+  type: 'line',
+  data: {
+    labels: femaleTemps.map(t => t.toFixed(1) + '°C'),
+    datasets: SPECIES.map(sp => ({
+      label: sp.name,
+      data: femaleTemps.map(t => +(femaleProportion(t, sp) * 100).toFixed(1)),
+      borderColor: sp.color,
+      backgroundColor: sp.colorFill,
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.4,
+      fill: false,
+    })).concat([{
+      label: '當前巢穴溫',
+      data: [],
+      borderColor: '#f1f5f9',
+      borderWidth: 1.5,
+      borderDash: [4, 4],
+      pointRadius: 0,
+      fill: false,
+    }])
+  },
+  options: {
+    ...chartDefaults,
+    plugins: {
+      ...chartDefaults.plugins,
+      annotation: {}
+    },
+    scales: {
+      ...chartDefaults.scales,
+      y: {
+        ...chartDefaults.scales.y,
+        min: 0, max: 100,
+        title: { display: true, text: '雌性比例（%）', color: '#64748b', font: { family: 'DM Mono', size: 10 } }
+      },
+      x: {
+        ...chartDefaults.scales.x,
+        ticks: {
+          ...chartDefaults.scales.x.ticks,
+          maxTicksLimit: 10,
+          callback: (val, i) => femaleTemps[i] % 3 === 0 ? femaleTemps[i].toFixed(0) + '°' : ''
+        }
+      }
+    }
+  }
+});
+
+// 風險係數圖（升溫0–5°C）
+const deltaRange = [];
+for (let d = 0; d <= 5; d += 0.1) deltaRange.push(+d.toFixed(1));
+
+const riskChart = new Chart(document.getElementById('chartRisk'), {
+  type: 'line',
+  data: {
+    labels: deltaRange.map(d => '+' + d.toFixed(1) + '°C'),
+    datasets: SPECIES.map(sp => ({
+      label: sp.name,
+      data: [],
+      borderColor: sp.color,
+      backgroundColor: sp.colorFill,
+      borderWidth: 2.5,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: false,
+    })).concat([{
+      label: '當前情境',
+      data: [],
+      borderColor: '#f1f5f9',
+      borderWidth: 1.5,
+      borderDash: [4, 4],
+      pointRadius: 0,
+      fill: false,
+    }])
+  },
+  options: {
+    ...chartDefaults,
+    scales: {
+      ...chartDefaults.scales,
+      y: {
+        ...chartDefaults.scales.y,
+        min: 0, max: 1,
+        title: { display: true, text: '風險係數 R', color: '#64748b', font: { family: 'DM Mono', size: 10 } }
+      },
+      x: {
+        ...chartDefaults.scales.x,
+        ticks: {
+          ...chartDefaults.scales.x.ticks,
+          maxTicksLimit: 11,
+          callback: (val, i) => i % 10 === 0 ? deltaRange[i].toFixed(0) + '°' : ''
+        }
+      }
+    }
+  }
+});
+
+// ══════════════════════════════
+// 更新函數
+// ══════════════════════════════
+function getParams() {
+  const base = parseFloat(document.getElementById('baseTemp').value);
+  const dT = parseFloat(document.getElementById('deltaT').value);
+  const shade = parseFloat(document.getElementById('shade').value);
+  const delta = parseFloat(document.getElementById('delta').value);
+  return { base, dT, shade, delta };
+}
+
+function getStatusText(R, lethality) {
+  if (lethality > 0.3) return ['CRITICAL — 胚胎大量死亡', 'status-critical pulse'];
+  if (R > 0.8) return ['HIGH RISK — 性別嚴重失衡', 'status-danger'];
+  if (R > 0.5) return ['MODERATE — 性別偏斜明顯', 'status-warn'];
+  if (R > 0.2) return ['LOW — 輕微偏斜', 'status-warn'];
+  return ['SAFE — 性別比例健康', 'status-safe'];
+}
+
+function update() {
+  const { base, dT, shade, delta } = getParams();
+  const Tnest = nestTemp(base, dT, delta, shade);
+
+  // Update display values
+  document.getElementById('deltaTVal').textContent = '+' + dT.toFixed(1) + '°C';
+  document.getElementById('baseTempVal').textContent = base.toFixed(1) + '°C';
+  document.getElementById('shadeVal').textContent = shade.toFixed(0) + '%';
+  document.getElementById('deltaVal').textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1) + '°C';
+  document.getElementById('nestTempDisplay').textContent = Tnest.toFixed(2) + '°C';
+
+  // Temperature warning
+  const warn = document.getElementById('tempWarning');
+  if (Tnest > 36) {
+    warn.className = 'temp-warning show danger';
+    warn.textContent = '⚠ 巢穴溫度 ' + Tnest.toFixed(1) + '°C — 已超過多數物種急性致死閾值';
+  } else if (Tnest > 33) {
+    warn.className = 'temp-warning show warn';
+    warn.textContent = '⚡ 巢穴溫度 ' + Tnest.toFixed(1) + '°C — 接近高危範圍';
+  } else {
+    warn.className = 'temp-warning';
+  }
+
+  // Update risk cards & table
+  const tableRows = [];
+  SPECIES.forEach((sp, i) => {
+    const F = femaleProportion(Tnest, sp);
+    const M = lethalRate(Tnest, sp);
+    const R = riskIndex(Tnest, sp);
+    const [statusText, statusClass] = getStatusText(R, M);
+
+    document.getElementById('risk' + i).textContent = R.toFixed(3);
+    document.getElementById('riskBar' + i).style.width = (R * 100).toFixed(0) + '%';
+    const statusEl = document.getElementById('riskStatus' + i);
+    statusEl.textContent = statusText;
+    statusEl.className = 'risk-status ' + statusClass;
+    document.getElementById('female' + i).textContent = (F * 100).toFixed(1) + '%';
+
+    tableRows.push(`
+      <tr>
+        <td style="color:${sp.color};font-weight:600">${sp.name}</td>
+        <td><span class="tag tag-${sp.mode}">${sp.mode}</span></td>
+        <td>${sp.pivots.join(' / ')}°C</td>
+        <td style="color:${Tnest>sp.lethalTemp?'#f87171':'#e2e8f0'}">${Tnest.toFixed(2)}°C</td>
+        <td>${(F*100).toFixed(1)}%</td>
+        <td style="color:${M>0?'#f87171':'#4ade80'}">${(M*100).toFixed(1)}%</td>
+        <td style="color:${R>0.7?'#f87171':R>0.4?'#fbbf24':'#4ade80'};font-weight:600">${R.toFixed(3)}</td>
+        <td><span class="risk-status ${statusClass}">${statusText.split('—')[0].trim()}</span></td>
+      </tr>
+    `);
+  });
+  document.getElementById('dataTableBody').innerHTML = tableRows.join('');
+
+  // Update female proportion chart — add vertical line for current temp
+  const nestIdx = femaleTemps.findIndex(t => t >= Tnest);
+  const verticalData = femaleTemps.map((t, i) => i === nestIdx ? 50 : null);
+  femaleChart.data.datasets[3].data = verticalData;
+  femaleChart.update('none');
+
+  // Update risk projection chart
+  deltaRange.forEach((dTi, idx) => {
+    const Tnest_i = nestTemp(base, dTi, delta, shade);
+    SPECIES.forEach((sp, si) => {
+      riskChart.data.datasets[si].data[idx] = +riskIndex(Tnest_i, sp).toFixed(3);
+    });
+  });
+
+  // Vertical line at current dT
+  const dTIdx = deltaRange.findIndex(d => d >= dT);
+  riskChart.data.datasets[3].data = deltaRange.map((d, i) => i === dTIdx ? 0.5 : null);
+  riskChart.update('none');
+}
+
+// Event listeners
+['deltaT','baseTemp','shade','delta'].forEach(id => {
+  document.getElementById(id).addEventListener('input', update);
+});
+
+// Init
+update();
+</script>
+</body>
+</html>
